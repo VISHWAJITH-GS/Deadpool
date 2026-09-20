@@ -9,12 +9,14 @@ from app.agent.persona import Persona
 from app.agent.safety import safety_controller
 from app.agent.intent_parser import intent_parser
 from app.tools.app_discovery import app_discovery
+from app.agent.state import StateMachine, AgentState
 
 import app.tools.calculator
 import app.tools.system_info
 import app.tools.files
 import app.tools.web
 import app.tools.desktop
+import app.observation.ui_tree
 
 class TaskState:
     def __init__(self, goal: str, steps: list):
@@ -32,6 +34,7 @@ class AgentRuntime:
         self.system_prompt = PromptBuilder.build_system_prompt(self.tools)
         self.max_actions_per_task = 12
         self.debug_mode = False
+        self.state_machine = StateMachine()
 
     def toggle_debug(self, state: bool):
         self.debug_mode = state
@@ -105,18 +108,32 @@ class AgentRuntime:
 
     def process_input(self, user_input: str) -> tuple[str, str]:
         # Handle fast-path intent parsing
+        self.state_machine.transition(AgentState.UNDERSTANDING)
         plan = intent_parser.parse_intent(user_input)
         if plan:
+            self.state_machine.transition(AgentState.PLANNING)
             task = TaskState(plan["goal"], plan["steps"])
+            self.state_machine.transition(AgentState.EXECUTING)
             results = self.execute_plan(task)
-            # Return a simple response indicating success
+            self.state_machine.transition(AgentState.VERIFYING)
+            self.state_machine.transition(AgentState.COMPLETED)
             msg = f"Done. Task executed successfully.\n{results}"
+            self.state_machine.transition(AgentState.IDLE)
             return Persona.format_response("Done. " + plan["goal"]), Persona.format_response("Done.")
 
-        context_manager.add_message("user", user_input)
+        self.state_machine.transition(AgentState.OBSERVING)
+        # Inject basic observation context before starting the LLM loop to save a tool call
+        try:
+            active_window = tool_registry.execute("get_active_window", {})
+            observation = f"User Request: {user_input}\nCurrent Active Window: {active_window}"
+        except Exception:
+            observation = user_input
+            
+        context_manager.add_message("user", observation)
         action_count = 0
         
         while action_count < self.max_actions_per_task:
+            self.state_machine.transition(AgentState.PLANNING)
             action_count += 1
             prompt = PromptBuilder.build_user_prompt(user_input)
             
@@ -152,37 +169,48 @@ class AgentRuntime:
                     tool_calls = [tool_calls]
                 
                 if not tool_calls:
+                    self.state_machine.transition(AgentState.COMPLETED)
                     context_manager.add_message("assistant", text)
+                    self.state_machine.transition(AgentState.IDLE)
                     return Persona.format_response(text), Persona.format_response(voice_text)
                     
                 print(f"\n[Deadpool is thinking...] {text}")
                 
                 tool_results = []
+                self.state_machine.transition(AgentState.EXECUTING)
                 for call in tool_calls:
                     name = call.get("name")
                     args = call.get("arguments", {})
                     
                     risk = safety_controller.get_risk_level(name, args)
                     if risk == safety_controller.DANGEROUS or risk == safety_controller.CONFIRM:
+                        self.state_machine.transition(AgentState.WAITING_PERMISSION)
                         print(f"\n⚠️ WARNING: Deadpool wants to execute a {risk} action: {name}({args})")
                         confirm = input("Allow? (y/n): ").strip().lower()
                         if confirm != 'y':
                             print("Action cancelled by user.")
                             tool_results.append(f"Tool '{name}' execution was DENIED by the user for safety.")
+                            self.state_machine.transition(AgentState.EXECUTING)
                             continue
+                        self.state_machine.transition(AgentState.EXECUTING)
                     
                     print(f"🔧 Executing {name}({args})...")
                     result = tool_registry.execute(name, args)
                     tool_results.append(f"Tool '{name}' returned: {result}")
                 
+                self.state_machine.transition(AgentState.VERIFYING)
                 user_input = "System Info (Tool Results):\n" + "\n".join(tool_results)
                 context_manager.add_message("assistant", text + f" (Called: {[c.get('name') for c in tool_calls]})")
                 
             except json.JSONDecodeError:
+                self.state_machine.transition(AgentState.FAILED)
                 msg = "I couldn't form a valid action plan. Let me try again or you can rephrase."
                 context_manager.add_message("assistant", msg)
+                self.state_machine.transition(AgentState.IDLE)
                 return Persona.format_response(msg), Persona.format_response(msg)
                     
+        self.state_machine.transition(AgentState.FAILED)
         msg = "I've been thinking for too long and hit my action limit! Let's try something else."
         formatted_response = Persona.format_response(msg)
+        self.state_machine.transition(AgentState.IDLE)
         return formatted_response, formatted_response
