@@ -1,4 +1,6 @@
-from app.tools.registry import tool_registry
+from app.applications.registry import tool_registry
+from app.applications.resolver import app_web_registry
+import webbrowser
 import urllib.request
 import urllib.parse
 import re
@@ -46,3 +48,32 @@ def web_search(query: str) -> str:
             return "Search Results:\n" + "\n".join(results)
     except Exception as e:
         return f"Web search failed: {e}"
+
+@tool_registry.register(
+    name="open_url",
+    description="Opens a website. Pass the raw URL or a known alias (e.g., 'leetcode').",
+    schema={
+        "type": "object",
+        "properties": {
+            "url": {
+                "type": "string",
+                "description": "The URL or known website alias."
+            }
+        },
+        "required": ["url"]
+    }
+)
+def open_url(url: str) -> str:
+    """Opens a URL, checking the registry first."""
+    # Check registry for alias
+    resolved_url = app_web_registry.find_website(url)
+    final_url = resolved_url if resolved_url else url
+    
+    if not final_url.startswith("http"):
+        final_url = "https://" + final_url
+
+    try:
+        webbrowser.open(final_url)
+        return f"Successfully opened URL: {final_url}"
+    except Exception as e:
+        return f"Failed to open URL: {str(e)}"

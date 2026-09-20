@@ -1,4 +1,4 @@
-from app.tools.registry import tool_registry
+from app.applications.registry import tool_registry
 from datetime import datetime
 
 @tool_registry.register(

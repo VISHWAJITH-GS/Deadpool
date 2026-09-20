@@ -1,4 +1,4 @@
-from app.tools.registry import tool_registry
+from app.applications.registry import tool_registry
 
 @tool_registry.register(
     name="calculator",

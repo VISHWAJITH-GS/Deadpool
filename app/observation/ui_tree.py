@@ -1,6 +1,6 @@
 import json
 import time
-from app.tools.registry import tool_registry
+from app.applications.registry import tool_registry
 
 # Global cache for UI elements to map IDs back to actual automation objects
 _ui_element_cache = {}

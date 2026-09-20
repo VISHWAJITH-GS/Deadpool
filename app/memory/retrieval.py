@@ -1,5 +1,5 @@
 from typing import List
-from app.memory.store import memory_store
+from app.memory.database import memory_store
 
 class MemoryRetriever:
     @staticmethod

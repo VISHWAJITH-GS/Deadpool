@@ -4,18 +4,21 @@ import time
 from app.llm.ollama import OllamaClient
 from app.agent.planner import PromptBuilder
 from app.agent.context import context_manager
-from app.tools.registry import tool_registry
-from app.agent.persona import Persona
-from app.agent.safety import safety_controller
+from app.applications.registry import tool_registry
+from app.persona.deadpool import Persona
+from app.safety.policy import safety_controller
 from app.agent.intent_parser import intent_parser
-from app.tools.app_discovery import app_discovery
+from app.applications.discovery import app_discovery
 from app.agent.state import StateMachine, AgentState
 
-import app.tools.calculator
-import app.tools.system_info
-import app.tools.files
-import app.tools.web
-import app.tools.desktop
+import app.utils.calculator
+import app.utils.system_info
+import app.filesystem.files
+import app.browser.browser
+import app.computer.desktop
+import app.computer.keyboard
+import app.computer.mouse
+import app.computer.windows
 import app.observation.ui_tree
 
 class TaskState:
